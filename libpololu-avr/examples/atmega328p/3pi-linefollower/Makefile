@@ -3,11 +3,11 @@ AVRDUDE_DEVICE = m328p
 DEVICE ?= atmega168
 AVRDUDE_DEVICE ?= m168
 
-CFLAGS=-g -Wall -mcall-prologues -mmcu=$(DEVICE) -Os
+CFLAGS=-g -I../../.. -Wall -mcall-prologues -mmcu=$(DEVICE) -Os
 CPP=avr-g++
 CC=avr-gcc
 OBJ2HEX=avr-objcopy 
-LDFLAGS=-Wl,-gc-sections -lpololu_$(DEVICE) -Wl,-relax
+LDFLAGS=-Wl,-gc-sections -L../../.. -lpololu_$(DEVICE) -Wl,-relax
 
 PORT ?= /dev/ttyUSB0
 AVRDUDE=avrdude

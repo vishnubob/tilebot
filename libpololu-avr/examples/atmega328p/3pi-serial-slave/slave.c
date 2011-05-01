@@ -395,7 +395,8 @@ int main()
 	print("Slave");
 
 	// start receiving data at 115.2 kbaud
-	serial_set_baud_rate(115200);
+	//serial_set_baud_rate(115200);
+	serial_set_baud_rate(9600);
 	serial_set_mode(SERIAL_CHECK);
 	serial_receive_ring(buffer, 100);
 
