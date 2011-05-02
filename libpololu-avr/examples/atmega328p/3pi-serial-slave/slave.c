@@ -475,7 +475,7 @@ int main()
 			m2_backward();
 			break;
 		case (char)0xC7:
-            val = (button_is_pressed(BUTTON_A) | (button_is_pressed(BUTTON_B) << 1) | (button_is_pressed(BUTTON_C) << 2));
+            val = button_is_pressed(ALL_BUTTONS);
             serial_send_blocking(&val, 1);
 			break;
 		default:

@@ -12,9 +12,40 @@
 NewSoftSerial bcode_port(rx_barcode_pin, tx_barcode_pin);
 NewSoftSerial robot_port(rx_pololu_pin, tx_pololu_pin);
 
+#define BUTTON_C        (1 << 5)
+#define BUTTON_B        (1 << 4)
+#define BUTTON_A        (1 << 1)
+#define BUTTON_ALL      (BUTTON_A | BUTTON_B | BUTTON_C)
+
 char barcode_buf[32];
 char robot_buf[32];
 volatile bool new_barcode;
+
+void play_tune(char *tune)
+{
+    int tune_len = strlen(tune);
+    if (tune_len > (sizeof(robot_buf) - 2))
+    { 
+        return; 
+    }
+    robot_buf[0] = '\xB3';
+    robot_buf[1] = (char)tune_len;
+    bcopy(tune, robot_buf + 2, tune_len);
+    send_robot(robot_buf, tune_len + 2);
+}
+
+char get_buttons()
+{
+    send_robot("\xC7",1);
+    recv_robot(robot_buf, 1, 5);
+    return robot_buf[0];
+}
+
+bool button_press(char button)
+{
+    return get_buttons() & button;
+}
+    
 
 void send_robot(char *buf, int buflen)
 {
@@ -136,62 +167,42 @@ void read_barcode_actual()
 void configure_barcode_scanner()  
 {
     bcode_port.begin(9600);
-    /*
-    int timeout = 10;
-    bcode_port.print("<K?>");
-    while(timeout)
-    {
-        if (bcode_port.available())
-        {
-            char ch = bcode_port.read();
-            Serial.print(ch);
-            if (ch == '>')
-            {
-                Serial.println("");
-            }
-        } else
-        {
-            delay(100);
-            timeout -= 1;
-        }
-    }
-    */
     Serial.println("barcode config");
     attachInterrupt(0, read_barcode, LOW);
     new_barcode = false;
+}
+
+void configure_robot()
+{
+	robot_port.begin(9600);
+    send_robot("\x81",1);
+    recv_robot(robot_buf, 6, 5);
+    Serial.println(robot_buf);
+    
+    // announce we're ready!
+    play_tune("l16o6gab>c");
 }
 
 void setup()
 {
     // set the data rate for the SoftwareSerial port
     Serial.begin(9600);
-	robot_port.begin(9600);
-	// wait for the device to show up
-    send_robot("\x81",1);
-    for(int x = 0; x < 6; ++x)
-    {
-        char ch = robot_port.read();
-        Serial.print(ch);
-    }
-    Serial.println("");
 
-    // play a tune
-    char tune[] = "\xB3 l16o6gab>c";
-    tune[1] = sizeof(tune)-3;
-    send_robot(tune,sizeof(tune)-1);
-    //configure_barcode_scanner();
+    configure_barcode_scanner();
+    configure_robot();
 }
 
 void loop()
 {
-    send_robot("\xC7",1);
-    recv_robot(robot_buf, 1, 5);
-    if(robot_buf[0])
+    char button = get_buttons();
+    if (button)
     {
-        Serial.println((int)robot_buf[0]);
-        if (robot_buf[0] & 1) { Serial.print("A"); }
-        if (robot_buf[0] & 2) { Serial.print("B"); }
-        if (robot_buf[0] & 4) { Serial.print("C"); }
+        if (button & BUTTON_A)
+            Serial.print("A");
+        if (button & BUTTON_B)
+            Serial.print("B");
+        if (button & BUTTON_C)
+            Serial.print("C");
         Serial.println("");
     }
     
