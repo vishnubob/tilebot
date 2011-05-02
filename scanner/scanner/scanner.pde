@@ -2,11 +2,11 @@
 //#include "pololu/orangutan.h"
 //#include "SoftwareSerial.h"
 
-#define rx_barcode_pin 4
-#define tx_barcode_pin 5
+#define rx_barcode_pin 12
+#define tx_barcode_pin 11
 
-#define rx_pololu_pin 6
-#define tx_pololu_pin 7
+#define rx_pololu_pin 9
+#define tx_pololu_pin 8
 
 // set up a new serial port
 NewSoftSerial bcode_port(rx_barcode_pin, tx_barcode_pin);
@@ -86,9 +86,13 @@ void slave_stop_pid()
 
 void read_barcode()
 {
-    if (new_barcode) { return; }
+    new_barcode = true;
+}
 
-    int timeout = 32;
+void read_barcode_actual()
+{
+    detachInterrupt(0);
+    int timeout = 10;
     char *ptr = barcode_buf;
     while(timeout)
     {
@@ -101,23 +105,21 @@ void read_barcode()
             }
             *ptr = ch;
             ptr++;
+        } else
+        {
+            delay(100);
+            timeout--;
         }
-        timeout--;
     }
     *ptr = 0;
-    new_barcode = true;
+    attachInterrupt(0, read_barcode, LOW);
 }
 
 void configure_barcode_scanner()  
 {
-    Serial.println("barcode config");
-    //bcode_port.print("<K200,0>");
+    bcode_port.begin(9600);
     /*
-    bcode_port.print("<Z>");
-    */
-    int timeout = 500;
-    //bcode_port.print("<Ard>");
-    //bcode_port.print("<K100,4>");
+    int timeout = 10;
     bcode_port.print("<K?>");
     while(timeout)
     {
@@ -131,10 +133,12 @@ void configure_barcode_scanner()
             }
         } else
         {
-            delay(50);
+            delay(100);
             timeout -= 1;
         }
     }
+    */
+    Serial.println("barcode config");
     attachInterrupt(0, read_barcode, LOW);
     new_barcode = false;
 }
@@ -143,11 +147,8 @@ void setup()
 {
     // set the data rate for the SoftwareSerial port
     Serial.begin(9600);
-    bcode_port.begin(9600);
-    configure_barcode_scanner();
 	robot_port.begin(9600);
 	// wait for the device to show up
-    Serial.println("master");
     send_robot("\x81",1);
     for(int x = 0; x < 6; ++x)
     {
@@ -159,18 +160,21 @@ void setup()
     // play a tune
     char tune[] = "\xB3 l16o6gab>c";
     tune[1] = sizeof(tune)-3;
-
     send_robot(tune,sizeof(tune)-1);
-    delay(1000);
-
+    //configure_barcode_scanner();
+    slave_set_pid(50, 1, 20, 3, 2);
 }
 
 void loop()
 {
     if(new_barcode)
     {
+        read_barcode_actual();
         Serial.print("barcode: ");
         Serial.println(barcode_buf);
+        char tune[] = "\xB3 l16o6gab>c";
+        tune[1] = sizeof(tune)-3;
+        send_robot(tune,sizeof(tune)-1);
         new_barcode = false;
     }
 }

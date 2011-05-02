@@ -404,6 +404,7 @@ int main()
 	{
 		// wait for a command
 		char command = read_next_byte();
+        char val;
 
 		// The list of commands is below: add your own simply by
 		// choosing a command byte and introducing another case
@@ -473,7 +474,10 @@ int main()
 		case (char)0xC6:
 			m2_backward();
 			break;
-
+		case (char)0xC7:
+            val = (button_is_pressed(BUTTON_A) | (button_is_pressed(BUTTON_B) << 1) | (button_is_pressed(BUTTON_C) << 2));
+            serial_send_blocking(&val, 1);
+			break;
 		default:
 			clear();
 			print("Bad cmd");
