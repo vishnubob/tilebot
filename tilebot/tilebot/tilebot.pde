@@ -13,6 +13,7 @@ NewSoftSerial bcode_port(rx_barcode_pin, tx_barcode_pin);
 NewSoftSerial robot_port(rx_pololu_pin, tx_pololu_pin);
 
 char barcode_buf[32];
+char robot_buf[32];
 volatile bool new_barcode;
 
 void send_robot(char *buf, int buflen)
@@ -22,6 +23,23 @@ void send_robot(char *buf, int buflen)
         robot_port.print(*buf);
         buf++;
         buflen--;
+    }
+}
+
+void recv_robot(char *buf, int expect, int timeout)
+{
+    while(timeout && expect)
+    {
+        if (robot_port.available())
+        {
+            *buf = robot_port.read();
+            buf++;
+            expect--;
+        } else
+        {
+            timeout--;
+            delay(100);
+        }
     }
 }
 
@@ -162,11 +180,21 @@ void setup()
     tune[1] = sizeof(tune)-3;
     send_robot(tune,sizeof(tune)-1);
     //configure_barcode_scanner();
-    slave_set_pid(50, 1, 20, 3, 2);
 }
 
 void loop()
 {
+    send_robot("\xC7",1);
+    recv_robot(robot_buf, 1, 5);
+    if(robot_buf[0])
+    {
+        Serial.println((int)robot_buf[0]);
+        if (robot_buf[0] & 1) { Serial.print("A"); }
+        if (robot_buf[0] & 2) { Serial.print("B"); }
+        if (robot_buf[0] & 4) { Serial.print("C"); }
+        Serial.println("");
+    }
+    
     if(new_barcode)
     {
         read_barcode_actual();
