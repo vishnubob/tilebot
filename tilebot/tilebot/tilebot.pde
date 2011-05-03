@@ -17,9 +17,20 @@ NewSoftSerial robot_port(rx_pololu_pin, tx_pololu_pin);
 #define BUTTON_A        (1 << 1)
 #define BUTTON_ALL      (BUTTON_A | BUTTON_B | BUTTON_C)
 
+#define START_CODE          1
+#define STOP_CODE           2
+#define FORWARD_CODE        3
+#define REVERSE_CODE        4
+#define TURN_LEFT_CODE      5
+#define TURN_RIGHT_CODE     6
+
+#define MOVEMENT_DELAY      1000
+
 char barcode_buf[32];
 char robot_buf[32];
+unsigned char command_que[32];
 volatile bool new_barcode;
+unsigned char command_cnt;
 
 void play_tune(char *tune)
 {
@@ -30,7 +41,7 @@ void play_tune(char *tune)
     }
     robot_buf[0] = '\xB3';
     robot_buf[1] = (char)tune_len;
-    bcopy(tune, robot_buf + 2, tune_len);
+    memcpy(robot_buf + 2, tune, tune_len);
     send_robot(robot_buf, tune_len + 2);
 }
 
@@ -51,8 +62,7 @@ void send_robot(char *buf, int buflen)
 {
     while(buflen)
     {
-        robot_port.print(*buf);
-        buf++;
+        robot_port.print(*buf++);
         buflen--;
     }
 }
@@ -63,8 +73,7 @@ void recv_robot(char *buf, int expect, int timeout)
     {
         if (robot_port.available())
         {
-            *buf = robot_port.read();
-            buf++;
+            *buf++ = robot_port.read();
             expect--;
         } else
         {
@@ -112,7 +121,7 @@ void slave_auto_calibrate()
 {
 	int tmp_buffer[1];
 	send_robot("\xBA",1);
-	//serial_receive_blocking((char *)tmp_buffer, 1, 10000);
+    recv_robot(robot_buf, 1, 10000);
 }
 
 // sets up the pid constants on the 3pi for line following
@@ -152,23 +161,24 @@ void read_barcode_actual()
             {
                 break;
             }
-            *ptr = ch;
-            ptr++;
+            *ptr++ = ch;
         } else
         {
             delay(100);
             timeout--;
         }
     }
+    bcode_port.flush();
     *ptr = 0;
-    attachInterrupt(0, read_barcode, LOW);
+    new_barcode = false;
+    //attachInterrupt(0, read_barcode, LOW);
 }
 
 void configure_barcode_scanner()  
 {
     bcode_port.begin(9600);
     Serial.println("barcode config");
-    attachInterrupt(0, read_barcode, LOW);
+    //attachInterrupt(0, read_barcode, LOW);
     new_barcode = false;
 }
 
@@ -183,6 +193,112 @@ void configure_robot()
     play_tune("l16o6gab>c");
 }
 
+bool collect_codes()
+{
+    Serial.println("CC");
+    play_tune("l16o6gaga");
+    slave_auto_calibrate();
+    unsigned char *head = command_que;
+    command_cnt = 0;
+    unsigned char code;
+    new_barcode = false;
+    slave_set_pid(20, 1, 20, 3, 2);
+
+    unsigned long ts_stop = millis() + 60UL * 1000UL;
+    unsigned long ts_barcode = 0;
+
+    Serial.println(ts_stop);
+
+    while (1)
+    {
+        unsigned long ts_now = millis();
+        if (ts_now > ts_stop)
+        {
+            break;
+        }
+        if((ts_now > ts_barcode))
+        {
+            attachInterrupt(0, read_barcode, LOW);
+        }
+        if(new_barcode)
+        {
+            ts_barcode = ts_now + 500UL;
+            read_barcode_actual();
+            char *ptr = barcode_buf;
+            while(*ptr)
+            {
+                code = (*ptr++) - '0';
+                if ((code >= 1) && (code <= 6))
+                {
+                    break;
+                }
+            }
+            if ((code <= 0) || (code > 6))
+            {
+                slave_stop_pid();
+                Serial.println("badcode");
+                play_tune("l4o4caca");
+                return false;
+            }
+            if (code == STOP_CODE)
+            {
+                slave_stop_pid();
+                play_tune("l16o6gg");
+                return true;
+            }
+            play_tune("l16o6gg");
+            Serial.print("code: ");
+            Serial.println(code + '0');
+            *head++ = code;
+            ++command_cnt;
+        }
+    }
+    slave_stop_pid();
+    play_tune("l4o6gg");
+    return false;
+}
+
+void run_codes()
+{
+    Serial.println("RC");
+    unsigned char *head = command_que;
+    for (unsigned char idx = 0; idx < command_cnt; ++idx)
+    {
+        unsigned char code = command_que[idx];
+        switch (code)
+        {
+            case START_CODE:
+                /* technically a NOP */
+                break;
+            case STOP_CODE:
+                return;
+                break;
+            case FORWARD_CODE:
+                slave_set_motors(20, 20);
+                delay(MOVEMENT_DELAY);
+                slave_set_motors(0, 0);
+                break;
+            case REVERSE_CODE:
+                slave_set_motors(-20, -20);
+                delay(MOVEMENT_DELAY);
+                slave_set_motors(0, 0);
+                break;
+            case TURN_LEFT_CODE:
+                slave_set_motors(-20, 20);
+                delay(MOVEMENT_DELAY);
+                slave_set_motors(0, 0);
+                break;
+            case TURN_RIGHT_CODE:
+                slave_set_motors(20, -20);
+                delay(MOVEMENT_DELAY);
+                slave_set_motors(0, 0);
+                break;
+        }
+    }
+}
+
+
+
 void setup()
 {
     // set the data rate for the SoftwareSerial port
@@ -194,27 +310,38 @@ void setup()
 
 void loop()
 {
-    char button = get_buttons();
-    if (button)
+    /* wait for button push */
+    while (1)
     {
-        if (button & BUTTON_A)
-            Serial.print("A");
-        if (button & BUTTON_B)
-            Serial.print("B");
-        if (button & BUTTON_C)
-            Serial.print("C");
-        Serial.println("");
+        for(int x = 0; x < 20; ++x)
+        {
+            button_press(BUTTON_A);
+            robot_port.flush();
+        }
+
+        if (button_press(BUTTON_A))
+        {
+            Serial.println("inner loop");
+            if (collect_codes())
+            {
+                break;
+            }
+        }
     }
-    
-    if(new_barcode)
+
+    for(int x = 0; x < 20; ++x)
     {
-        read_barcode_actual();
-        Serial.print("barcode: ");
-        Serial.println(barcode_buf);
-        char tune[] = "\xB3 l16o6gab>c";
-        tune[1] = sizeof(tune)-3;
-        send_robot(tune,sizeof(tune)-1);
-        new_barcode = false;
+        button_press(BUTTON_A);
+        robot_port.flush();
     }
+
+    while (1)
+    {
+        if (button_press(BUTTON_A))
+        {
+            break;
+        }
+    }
+    run_codes();
 }
 
